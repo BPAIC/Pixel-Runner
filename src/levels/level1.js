@@ -15,8 +15,11 @@ const generateLevel = () => {
   const height = 720;
   const groundY = 656;
   const tileW = 64;
+  const maxRise = 200;
+  const minRise = 120;
   const ground = [];
   const platforms = [];
+  const pathPlatforms = [];
   const coins = [];
   const spikes = [];
 
@@ -46,9 +49,9 @@ const generateLevel = () => {
   while (pathX < width - 220) {
     const platformTiles = randInt(2, 3);
     const platformX = pathX;
-    const platformY = clamp(pathY + randInt(-60, 60), groundY - 300, groundY - 120);
+    const platformY = clamp(pathY + randInt(-60, 60), groundY - maxRise, groundY - minRise);
     platforms.push({ x: platformX, y: platformY, tiles: platformTiles });
-    addCoinsOnPlatform(coins, platformX, platformY, platformTiles);
+    pathPlatforms.push({ x: platformX, y: platformY, tiles: platformTiles });
     pathX += randInt(200, 260);
     pathY = platformY;
   }
@@ -97,27 +100,48 @@ const generateLevel = () => {
     h: 64
   }));
 
-  const filterCoins = (list) => list.filter((coin) => {
-    const inPlatform = platformRects.some((rect) => overlapsRect(coin, rect));
-    const inGround = groundRects.some((rect) => overlapsRect(coin, rect));
-    return !inPlatform && !inGround;
+const filterCoins = (list) => list.filter((coin) => {
+  const inPlatform = platformRects.some((rect) => overlapsRect(coin, rect));
+  const inGround = groundRects.some((rect) => overlapsRect(coin, rect));
+  return !inPlatform && !inGround;
+});
+  const uniqueCoins = (list) => {
+    const seen = new Set();
+    return list.filter((coin) => {
+      const key = `${Math.round(coin.x)}|${Math.round(coin.y)}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  // Platform coins: only on the guaranteed path to avoid unreachable coins.
+  pathPlatforms.forEach((platform) => {
+    addCoinsOnPlatform(coins, platform.x, platform.y, platform.tiles);
   });
 
-  // Platform coins: one per platform at center.
-  platforms.forEach((platform) => {
-    const centerX = platform.x + (platform.tiles * tileW) / 2;
-    coins.push({ x: centerX, y: platform.y - 96 });
-  });
-
-  // Ground coins: every other ground segment.
-  ground.forEach((segment, index) => {
+  // Ground coins: every other safe segment (no spikes).
+  safeSegments.forEach((segment, index) => {
     if (index % 2 === 0) {
       const centerX = segment.x + (segment.tiles * tileW) / 2;
       coins.push({ x: centerX, y: groundY - 140 });
     }
   });
 
-  const filtered = filterCoins(coins.slice());
+  const hasSupport = (coin) => {
+    const surfaces = [...platformRects, ...groundRects];
+    return surfaces.some((rect) => {
+      if (coin.x < rect.x || coin.x > rect.x + rect.w) {
+        return false;
+      }
+      const gap = rect.y - coin.y;
+      return gap >= 60 && gap <= 170;
+    });
+  };
+
+  const filtered = uniqueCoins(filterCoins(coins.slice())).filter(hasSupport);
   coins.length = 0;
   coins.push(...filtered);
 

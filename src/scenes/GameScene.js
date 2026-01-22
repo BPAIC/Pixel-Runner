@@ -41,9 +41,18 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.coins = this.physics.add.group({ allowGravity: false, immovable: true });
-    this.level.coins.forEach((coin) => {
+    this.level.coins.forEach((coin, index) => {
       const sprite = this.coins.create(coin.x, coin.y, 'coin');
       sprite.setOrigin(0.5, 0.5);
+      this.tweens.add({
+        targets: sprite,
+        y: coin.y - 8,
+        duration: 800,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+        delay: index * 60
+      });
     });
 
     this.spikes = this.physics.add.staticGroup();
