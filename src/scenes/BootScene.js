@@ -6,7 +6,8 @@ export default class BootScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.setBaseURL('/');
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    this.load.setBaseURL(baseUrl);
     this.load.setPath('assets/');
 
     this.load.image('tile', 'tile.png');
