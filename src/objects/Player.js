@@ -15,12 +15,13 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
     this.lastDirection = 1;
   }
 
-  update(cursors, keys) {
-    const left = cursors.left.isDown || keys.A.isDown;
-    const right = cursors.right.isDown || keys.D.isDown;
+  update(cursors, keys, touchState = {}) {
+    const left = cursors.left.isDown || keys.A.isDown || touchState.left;
+    const right = cursors.right.isDown || keys.D.isDown || touchState.right;
     const jumpPressed = Phaser.Input.Keyboard.JustDown(cursors.up) ||
       Phaser.Input.Keyboard.JustDown(keys.W) ||
-      Phaser.Input.Keyboard.JustDown(keys.SPACE);
+      Phaser.Input.Keyboard.JustDown(keys.SPACE) ||
+      touchState.jump;
 
     if (left) {
       this.setVelocityX(-this.moveSpeed);

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import generateLevel from '../levels/level1.js';
 import Player from '../objects/Player.js';
+import { getSafeInsets } from '../utils/safeArea.js';
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -13,6 +14,7 @@ export default class GameScene extends Phaser.Scene {
     this.isRespawning = false;
     this.collected = 0;
     this.controlsLocked = true;
+    this.designSize = { width: 1280, height: 720 };
     const storedLives = this.registry.get('lives');
     this.lives = typeof storedLives === 'number' ? storedLives : 3;
     this.level = generateLevel();
@@ -72,9 +74,11 @@ export default class GameScene extends Phaser.Scene {
     this.currentCheckpoint = { x: this.level.start.x, y: this.level.start.y };
 
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.scale.on('resize', this.handleResize, this);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('A,D,W,SPACE');
+    this.setupTouchControls();
 
     this.createAnimations();
 
@@ -110,6 +114,10 @@ export default class GameScene extends Phaser.Scene {
         lives: this.lives
       });
     });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', this.handleResize, this);
+    });
   }
 
   update() {
@@ -119,10 +127,15 @@ export default class GameScene extends Phaser.Scene {
     if (this.isFallingOut) {
       return;
     }
+    if (this.registry.get('portraitBlocked')) {
+      this.player.setVelocity(0, 0);
+      return;
+    }
     if (this.controlsLocked) {
       return;
     }
-    this.player.update(this.cursors, this.keys);
+    const touchState = this.consumeTouchState();
+    this.player.update(this.cursors, this.keys, touchState);
 
     if (this.player.y >= this.level.height) {
       this.triggerFallDeath();
@@ -260,6 +273,10 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  handleResize() {
+    this.updateTouchControlsLayout();
+  }
+
   snapFinishToGround() {
     const groundY = this.level.ground[0].y;
     const onGround = this.level.ground.some((segment) => {
@@ -342,4 +359,142 @@ export default class GameScene extends Phaser.Scene {
     this.scene.pause();
   }
 
+  setupTouchControls() {
+    const shouldShow = this.shouldShowTouchControls();
+    this.touchState = {
+      left: false,
+      right: false,
+      jumpQueued: false,
+      enabled: shouldShow
+    };
+    if (!shouldShow) {
+      return;
+    }
+
+    this.input.addPointer(2);
+
+    this.touchButtons = {
+      left: this.createTouchButton('◀', () => {
+        this.touchState.left = true;
+      }, () => {
+        this.touchState.left = false;
+      }),
+      right: this.createTouchButton('▶', () => {
+        this.touchState.right = true;
+      }, () => {
+        this.touchState.right = false;
+      }),
+      jump: this.createTouchButton('JUMP', () => {
+        this.touchState.jumpQueued = true;
+      })
+    };
+
+    this.updateTouchControlsLayout();
+    this.scale.on('resize', this.updateTouchControlsLayout, this);
+  }
+
+  shouldShowTouchControls() {
+    const device = this.sys.game.device;
+    return device.input.touch || device.os.android || device.os.iOS;
+  }
+
+  updateTouchControlsLayout() {
+    if (!this.touchState || !this.touchState.enabled || !this.touchButtons) {
+      return;
+    }
+    const safe = this.getSafeRect();
+    const base = Math.min(safe.width, safe.height);
+    const isPortrait = safe.height > safe.width;
+    const scale = isPortrait ? 0.85 : 1;
+    const buttonSize = Phaser.Math.Clamp(Math.round(base * 0.16 * scale), 56, 120);
+    const jumpSize = Phaser.Math.Clamp(Math.round(base * 0.22 * scale), 72, 160);
+    const margin = Phaser.Math.Clamp(Math.round(base * 0.05), 16, 48);
+
+    const leftX = safe.left + margin + buttonSize / 2;
+    const leftY = safe.bottom - margin - buttonSize / 2;
+    const rightX = leftX + buttonSize + margin;
+    const rightY = leftY;
+    const jumpX = safe.right - margin - jumpSize / 2;
+    const jumpY = safe.bottom - margin - jumpSize / 2;
+
+    this.touchButtons.left.setLayout(leftX, leftY, buttonSize, buttonSize);
+    this.touchButtons.right.setLayout(rightX, rightY, buttonSize, buttonSize);
+    this.touchButtons.jump.setLayout(jumpX, jumpY, jumpSize, jumpSize);
+  }
+
+  createTouchButton(label, onDown, onUp) {
+    const bg = this.add.rectangle(0, 0, 100, 100, 0x0b1220, 0.4)
+      .setScrollFactor(0)
+      .setDepth(2000);
+    const text = this.add.text(0, 0, label, {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '22px',
+      color: '#ffffff'
+    }).setOrigin(0.5, 0.5).setScrollFactor(0).setDepth(2001);
+
+    const hitArea = new Phaser.Geom.Rectangle(0, 0, 1, 1);
+    bg.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
+    bg.on('pointerdown', (pointer) => {
+      if (pointer && pointer.event && pointer.event.preventDefault) {
+        pointer.event.preventDefault();
+      }
+      if (onDown) {
+        onDown();
+      }
+    });
+    const handleUp = () => {
+      if (onUp) {
+        onUp();
+      }
+    };
+    bg.on('pointerup', handleUp);
+    bg.on('pointerout', handleUp);
+
+    return {
+      setLayout: (x, y, width, height) => {
+        bg.setPosition(x, y);
+        bg.setSize(width, height);
+        text.setPosition(x, y);
+        const fontSize = Math.round(Math.min(width, height) * 0.35);
+        text.setFontSize(`${fontSize}px`);
+        if (bg.input && bg.input.hitArea) {
+          const pad = Math.round(Math.min(width, height) * 0.35);
+          bg.input.hitArea.setTo(-pad, -pad, width + pad * 2, height + pad * 2);
+        }
+      }
+    };
+  }
+
+  consumeTouchState() {
+    if (!this.touchState || !this.touchState.enabled) {
+      return { left: false, right: false, jump: false };
+    }
+    const jump = this.touchState.jumpQueued;
+    this.touchState.jumpQueued = false;
+    return {
+      left: this.touchState.left,
+      right: this.touchState.right,
+      jump
+    };
+  }
+
+  getSafeRect() {
+    const gameW = this.scale.width;
+    const gameH = this.scale.height;
+    const display = this.scale.displaySize || { width: gameW, height: gameH };
+    const scale = Math.max(display.width / gameW, display.height / gameH) || 1;
+    const visibleW = display.width / scale;
+    const visibleH = display.height / scale;
+    const insetX = (gameW - visibleW) / 2;
+    const insetY = (gameH - visibleH) / 2;
+    const insets = getSafeInsets();
+    return {
+      left: insetX + insets.left,
+      right: gameW - insetX - insets.right,
+      top: insetY + insets.top,
+      bottom: gameH - insetY - insets.bottom,
+      width: visibleW - insets.left - insets.right,
+      height: visibleH - insets.top - insets.bottom
+    };
+  }
 }
