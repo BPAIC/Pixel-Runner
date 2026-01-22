@@ -1,0 +1,345 @@
+import Phaser from 'phaser';
+import generateLevel from '../levels/level1.js';
+import Player from '../objects/Player.js';
+
+export default class GameScene extends Phaser.Scene {
+  constructor() {
+    super('GameScene');
+    this.level = null;
+  }
+
+  create() {
+    this.isWin = false;
+    this.isRespawning = false;
+    this.collected = 0;
+    this.controlsLocked = true;
+    const storedLives = this.registry.get('lives');
+    this.lives = typeof storedLives === 'number' ? storedLives : 3;
+    this.level = generateLevel();
+
+    const { width, height } = this.level;
+    this.physics.world.setBounds(0, 0, width, height);
+    this.cameras.main.setBounds(0, 0, width, height);
+
+    this.platforms = this.physics.add.staticGroup();
+
+    if (!this.scene.isActive('UIScene')) {
+      this.scene.launch('UIScene');
+    } else if (this.scene.isSleeping('UIScene')) {
+      this.scene.wake('UIScene');
+    }
+    this.scene.bringToTop('UIScene');
+
+    this.level.ground.forEach((segment) => {
+      this.placeTiles(this.platforms, segment.x, segment.y, segment.tiles, 'tile', 64, 64);
+    });
+
+    this.level.platforms.forEach((segment) => {
+      this.placeTiles(this.platforms, segment.x, segment.y, segment.tiles, 'platform', 64, 32);
+    });
+
+    this.coins = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.level.coins.forEach((coin) => {
+      const sprite = this.coins.create(coin.x, coin.y, 'coin');
+      sprite.setOrigin(0.5, 0.5);
+    });
+
+    this.spikes = this.physics.add.staticGroup();
+    this.level.spikes.forEach((spike) => {
+      this.spikes.create(spike.x, spike.y, 'spike').setOrigin(0.5, 1);
+    });
+
+    this.checkpointSprite = this.physics.add.staticImage(
+      this.level.checkpoint.x,
+      this.level.checkpoint.y,
+      'checkpoint'
+    );
+    this.checkpointSprite.setOrigin(0.5, 1);
+    this.snapCheckpointToGround();
+
+    this.finishSprite = this.physics.add.staticImage(
+      this.level.finish.x,
+      this.level.finish.y,
+      'flag'
+    );
+    this.finishSprite.setOrigin(0.5, 1);
+    this.snapFinishToGround();
+
+    this.player = new Player(this, this.level.start.x, this.level.start.y);
+    this.gapZones = [];
+    this.createGapZones();
+
+    this.currentCheckpoint = { x: this.level.start.x, y: this.level.start.y };
+
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+
+    this.cursors = this.input.keyboard.createCursorKeys();
+    this.keys = this.input.keyboard.addKeys('A,D,W,SPACE');
+
+    this.createAnimations();
+
+    this.physics.add.collider(this.player, this.platforms);
+    this.gapZones.forEach((zone) => {
+      this.physics.add.overlap(this.player, zone, () => {
+        if (this.player.y > this.level.ground[0].y + 10) {
+          this.triggerFallDeath();
+        }
+      }, null, this);
+    });
+    this.physics.add.overlap(this.player, this.coins, this.collectCoin, null, this);
+    this.physics.add.overlap(this.player, this.spikes, this.hitSpike, null, this);
+    this.physics.add.overlap(this.player, this.checkpointSprite, this.setCheckpoint, null, this);
+    this.physics.add.overlap(this.player, this.finishSprite, this.tryFinish, null, this);
+    this.isFallingOut = false;
+
+    this.totalCoins = this.level.coins.length;
+    this.registry.set('totalCoins', this.totalCoins);
+    if (typeof this.registry.get('runCoins') !== 'number') {
+      this.registry.set('runCoins', 0);
+    }
+    this.game.events.emit('lives-changed', this.lives);
+    if (this.registry.get('startRequested')) {
+      this.controlsLocked = false;
+      this.registry.set('startRequested', false);
+    }
+    this.time.delayedCall(0, () => {
+      this.game.events.emit('score-changed', this.collected, this.totalCoins);
+      this.game.events.emit('game-ready', {
+        totalCoins: this.totalCoins,
+        requiredCoins: this.level.requiredCoins,
+        lives: this.lives
+      });
+    });
+  }
+
+  update() {
+    if (this.isWin) {
+      return;
+    }
+    if (this.isFallingOut) {
+      return;
+    }
+    if (this.controlsLocked) {
+      return;
+    }
+    this.player.update(this.cursors, this.keys);
+
+    if (this.player.y >= this.level.height) {
+      this.triggerFallDeath();
+    }
+  }
+
+  placeTiles(group, x, y, tiles, key, tileW, tileH) {
+    for (let i = 0; i < tiles; i += 1) {
+      group.create(x + i * tileW, y, key).setOrigin(0, 0);
+    }
+    group.refresh();
+  }
+
+  createAnimations() {
+    if (this.anims.exists('player-run')) {
+      return;
+    }
+
+    this.anims.create({
+      key: 'player-idle',
+      frames: [{ key: 'player-idle' }],
+      frameRate: 1
+    });
+
+    this.anims.create({
+      key: 'player-run',
+      frames: [{ key: 'player-run1' }, { key: 'player-run2' }],
+      frameRate: 10,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'player-jump',
+      frames: [{ key: 'player-jump' }],
+      frameRate: 1
+    });
+  }
+
+  collectCoin(player, coin) {
+    if (!coin.active || this.isWin) {
+      return;
+    }
+    coin.disableBody(true, true);
+    this.collected += 1;
+    const runCoins = this.registry.get('runCoins') + 1;
+    this.registry.set('runCoins', runCoins);
+    if (runCoins % 100 === 0) {
+      this.lives += 1;
+      this.registry.set('lives', this.lives);
+      this.game.events.emit('lives-changed', this.lives);
+    }
+    this.sound.play('pickup', { volume: 0.4 });
+    this.game.events.emit('score-changed', this.collected, this.totalCoins);
+
+    if (this.collected >= this.totalCoins) {
+      this.winGame();
+    }
+  }
+
+  hitSpike() {
+    if (this.isWin || this.isRespawning) {
+      return;
+    }
+    this.isRespawning = true;
+    this.loseLife();
+  }
+
+  setCheckpoint(player, checkpoint) {
+    if (checkpoint.getData('active')) {
+      return;
+    }
+    checkpoint.setData('active', true);
+    checkpoint.setTint(0x88ff88);
+    this.currentCheckpoint = { x: checkpoint.x, y: checkpoint.y - 16 };
+    this.game.events.emit('checkpoint', this.currentCheckpoint);
+  }
+
+  respawnPlayer() {
+    this.player.setVelocity(0, 0);
+    this.player.setPosition(this.currentCheckpoint.x, this.currentCheckpoint.y);
+  }
+
+  triggerFallDeath() {
+    if (this.isFallingOut) {
+      return;
+    }
+    this.isFallingOut = true;
+    this.player.body.checkCollision.none = true;
+    this.player.setVelocity(0, 900);
+    this.player.body.setAllowGravity(true);
+    this.time.delayedCall(500, () => {
+      this.player.body.checkCollision.none = false;
+      this.isFallingOut = false;
+      this.loseLife();
+    });
+  }
+
+  loseLife() {
+    this.lives -= 1;
+    this.registry.set('lives', this.lives);
+    this.game.events.emit('lives-changed', this.lives);
+    if (this.lives <= 0) {
+      this.game.events.emit('game-over', {
+        collected: this.collected,
+        total: this.totalCoins
+      });
+      this.scene.pause();
+      return;
+    }
+    this.player.setTint(0xff4444);
+    this.time.delayedCall(200, () => {
+      this.respawnPlayer();
+      this.player.clearTint();
+      this.isRespawning = false;
+    });
+  }
+
+  createGapZones() {
+    const groundY = this.level.ground[0].y;
+    const sorted = [...this.level.ground].sort((a, b) => a.x - b.x);
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      const currentEnd = current.x + current.tiles * 64;
+      const gapWidth = next.x - currentEnd;
+      if (gapWidth <= 0) {
+        continue;
+      }
+      const zone = this.add.zone(currentEnd + gapWidth / 2, groundY + 80, gapWidth, 180);
+      zone.setOrigin(0.5, 0.5);
+      this.physics.add.existing(zone, true);
+      zone.body.setSize(gapWidth, 180);
+      zone.body.updateFromGameObject();
+      this.gapZones.push(zone);
+    }
+  }
+
+  snapFinishToGround() {
+    const groundY = this.level.ground[0].y;
+    const onGround = this.level.ground.some((segment) => {
+      const start = segment.x;
+      const end = segment.x + segment.tiles * 64;
+      return this.finishSprite.x >= start && this.finishSprite.x <= end;
+    });
+    if (onGround && !this.isSpikeNear(this.finishSprite.x)) {
+      this.finishSprite.y = groundY;
+      this.finishSprite.refreshBody();
+      return;
+    }
+    const closest = [...this.level.ground]
+      .map((segment) => segment.x + segment.tiles * 64 / 2)
+      .reduce((best, x) => {
+        const dist = Math.abs(this.finishSprite.x - x);
+        if (!best || dist < best.dist) {
+          return { x, dist };
+        }
+        return best;
+      }, null);
+    if (closest) {
+      this.finishSprite.x = closest.x;
+      this.finishSprite.y = groundY;
+      this.finishSprite.refreshBody();
+    }
+  }
+
+  isSpikeNear(x) {
+    return this.level.spikes.some((spike) => Math.abs(spike.x - x) <= 48);
+  }
+
+  snapCheckpointToGround() {
+    const groundY = this.level.ground[0].y;
+    const onGround = this.level.ground.some((segment) => {
+      const start = segment.x;
+      const end = segment.x + segment.tiles * 64;
+      return this.checkpointSprite.x >= start && this.checkpointSprite.x <= end;
+    });
+    if (onGround) {
+      this.checkpointSprite.y = groundY;
+      this.checkpointSprite.refreshBody();
+      return;
+    }
+    const closest = [...this.level.ground]
+      .map((segment) => segment.x + segment.tiles * 64 / 2)
+      .reduce((best, x) => {
+        const dist = Math.abs(this.checkpointSprite.x - x);
+        if (!best || dist < best.dist) {
+          return { x, dist };
+        }
+        return best;
+      }, null);
+    if (closest) {
+      this.checkpointSprite.x = closest.x;
+      this.checkpointSprite.y = groundY;
+      this.checkpointSprite.refreshBody();
+    }
+  }
+
+  tryFinish() {
+    if (this.isWin) {
+      return;
+    }
+    if (this.collected >= this.level.requiredCoins) {
+      this.winGame();
+    } else {
+      this.game.events.emit('need-coins', this.level.requiredCoins);
+    }
+  }
+
+  winGame() {
+    this.isWin = true;
+    this.player.setVelocity(0, 0);
+    this.player.anims.stop();
+    this.game.events.emit('win', {
+      collected: this.registry.get('runCoins'),
+      total: this.totalCoins
+    });
+    this.scene.pause();
+  }
+
+}

@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/mnt/c/Users/BPAIC/Documents/Projects/GameBrauzer/logs/.0c581fdfb830be1e45a207e5b66049e26d3b46b7-audit.json",
+    "files": [
+        {
+            "date": 1769028409624,
+            "name": "/mnt/c/Users/BPAIC/Documents/Projects/GameBrauzer/logs/mcp-puppeteer-2026-01-21.log",
+            "hash": "ef5ee85ad4d3db00bdd247cb874fcc3be7ebb2fb7a747b3b952676bb33ca76f2"
+        },
+        {
+            "date": 1769067008261,
+            "name": "/mnt/c/Users/BPAIC/Documents/Projects/GameBrauzer/logs/mcp-puppeteer-2026-01-22.log",
+            "hash": "4af41742febbf3ca21263122215e615e0680bfc3a57700f2948c6554396c8da8"
+        }
+    ],
+    "hashType": "sha256"
+}
