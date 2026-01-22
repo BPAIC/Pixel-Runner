@@ -365,6 +365,8 @@ export default class GameScene extends Phaser.Scene {
       left: false,
       right: false,
       jumpQueued: false,
+      leftPointerId: null,
+      rightPointerId: null,
       enabled: shouldShow
     };
     if (!shouldShow) {
@@ -389,6 +391,7 @@ export default class GameScene extends Phaser.Scene {
       })
     };
 
+    this.setupTouchZones();
     this.updateTouchControlsLayout();
     this.scale.on('resize', this.updateTouchControlsLayout, this);
   }
@@ -420,6 +423,15 @@ export default class GameScene extends Phaser.Scene {
     this.touchButtons.left.setLayout(leftX, leftY, buttonSize, buttonSize);
     this.touchButtons.right.setLayout(rightX, rightY, buttonSize, buttonSize);
     this.touchButtons.jump.setLayout(jumpX, jumpY, jumpSize, jumpSize);
+
+    if (this.touchZones) {
+      const zoneHeight = Phaser.Math.Clamp(Math.round(safe.height * 0.35), 120, 260);
+      const zoneY = safe.bottom - zoneHeight / 2;
+      this.touchZones.left.setPosition(safe.left + safe.width * 0.25, zoneY);
+      this.touchZones.left.setSize(safe.width * 0.5, zoneHeight);
+      this.touchZones.right.setPosition(safe.left + safe.width * 0.75, zoneY);
+      this.touchZones.right.setSize(safe.width * 0.5, zoneHeight);
+    }
   }
 
   createTouchButton(label, onDown, onUp) {
@@ -476,6 +488,58 @@ export default class GameScene extends Phaser.Scene {
       right: this.touchState.right,
       jump
     };
+  }
+
+  setupTouchZones() {
+    const leftZone = this.add.rectangle(0, 0, 100, 100, 0x000000, 0.001)
+      .setScrollFactor(0)
+      .setDepth(1990);
+    const rightZone = this.add.rectangle(0, 0, 100, 100, 0x000000, 0.001)
+      .setScrollFactor(0)
+      .setDepth(1990);
+
+    leftZone.setInteractive();
+    rightZone.setInteractive();
+
+    leftZone.on('pointerdown', (pointer) => {
+      if (this.touchState.leftPointerId === null) {
+        this.touchState.leftPointerId = pointer.id;
+        this.touchState.left = true;
+      }
+    });
+    leftZone.on('pointerup', (pointer) => {
+      if (pointer.id === this.touchState.leftPointerId) {
+        this.touchState.leftPointerId = null;
+        this.touchState.left = false;
+      }
+    });
+    leftZone.on('pointerout', (pointer) => {
+      if (pointer.id === this.touchState.leftPointerId) {
+        this.touchState.leftPointerId = null;
+        this.touchState.left = false;
+      }
+    });
+
+    rightZone.on('pointerdown', (pointer) => {
+      if (this.touchState.rightPointerId === null) {
+        this.touchState.rightPointerId = pointer.id;
+        this.touchState.right = true;
+      }
+    });
+    rightZone.on('pointerup', (pointer) => {
+      if (pointer.id === this.touchState.rightPointerId) {
+        this.touchState.rightPointerId = null;
+        this.touchState.right = false;
+      }
+    });
+    rightZone.on('pointerout', (pointer) => {
+      if (pointer.id === this.touchState.rightPointerId) {
+        this.touchState.rightPointerId = null;
+        this.touchState.right = false;
+      }
+    });
+
+    this.touchZones = { left: leftZone, right: rightZone };
   }
 
   getSafeRect() {

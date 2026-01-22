@@ -8,6 +8,7 @@ export default class UIScene extends Phaser.Scene {
     super('UIScene');
     this.currentCollected = 0;
     this.totalCoins = 0;
+    this.portraitBlocked = false;
   }
 
   create() {
@@ -329,6 +330,22 @@ export default class UIScene extends Phaser.Scene {
     this.rotateText.setVisible(portraitBlocked);
     this.rotateHint.setVisible(portraitBlocked);
     this.registry.set('portraitBlocked', portraitBlocked);
+    this.syncPortraitState(portraitBlocked);
+  }
+
+  syncPortraitState(blocked) {
+    if (this.portraitBlocked === blocked) {
+      return;
+    }
+    this.portraitBlocked = blocked;
+    const gameScene = this.scene.get('GameScene');
+    if (gameScene && gameScene.scene) {
+      if (blocked) {
+        gameScene.scene.pause();
+      } else if (gameScene.scene.isPaused()) {
+        gameScene.scene.resume();
+      }
+    }
   }
 
   getSafeRect() {

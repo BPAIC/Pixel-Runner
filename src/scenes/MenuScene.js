@@ -112,6 +112,7 @@ export default class MenuScene extends Phaser.Scene {
       this.layoutMenu();
       return;
     }
+    this.tryEnterFullscreen();
     this.tryLockLandscape();
     this.scene.stop('UIScene');
     this.registry.set('startRequested', true);
@@ -281,6 +282,16 @@ export default class MenuScene extends Phaser.Scene {
       }
     } catch (error) {
       // ignore lock errors
+    }
+  }
+
+  async tryEnterFullscreen() {
+    try {
+      if (this.scale && !this.scale.isFullscreen) {
+        await this.scale.startFullscreen();
+      }
+    } catch (error) {
+      // ignore fullscreen errors
     }
   }
 }

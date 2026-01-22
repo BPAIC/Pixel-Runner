@@ -36,6 +36,10 @@ const config = {
 };
 
 setTimeout(() => {
+  const appRoot = document.getElementById('app');
+  if (appRoot) {
+    appRoot.textContent = '';
+  }
   const game = new Phaser.Game(config);
   window.__game = game;
 }, 0);
